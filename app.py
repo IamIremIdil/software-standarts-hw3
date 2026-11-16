@@ -28,4 +28,4 @@ def visit():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
     ## The host="0.0.0.0" part matters. Without it, Flask only accepts
-    ## connections from inside its own container, and the browser or curl can’t reach it.
+    ## connections from inside its own container, and the browser or curl can’t reach it. 

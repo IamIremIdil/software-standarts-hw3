@@ -1,19 +1,29 @@
-### 1. How the app finds redis by name
+## 1. What is the difference between a readiness and a liveness probe?
 
-Compose creates one network for the project (`software-standarts-hw2_default`) and attaches both containers to it. Docker runs an embedded DNS server on that network that maps each service name to the container's current IP, so my app, configured with `REDIS_HOST=redis`, reaches Redis. I confirmed it with `gethostbyname('redis')` inside the app container, which printed `172.19.0.2`. The default bridge network used by plain `docker run` has no such DNS, so containers can only reach each other by IP, and those change on every start. My test `docker run --rm alpine ping -c1 a1` failed with `bad address 'a1'` (see the extra screenshot 6).
+- **Readiness Probe:** Checks whether a container is ready to receive traffic. If the probe fails, Kubernetes removes the Pod from the Service endpoints, so it stops receiving requests. The container is not restarted.
 
-### 2. Stateless vs. stateful services
+- **Liveness Probe:** Checks whether a container is still functioning properly. If the probe fails repeatedly, Kubernetes restarts the container.
 
-The `app` is stateless: it keeps no data on its own disk, and every request reads and writes the counter in Redis. The `redis` service is stateful: it keeps the counter in the `redis-data` named volume. I called `/visit` three times (1, 2, 3), ran `docker compose rm -sf app` and `docker compose down`, started again with `docker compose up -d`, and the next `/visit` returned 4. After `docker compose down -v`, which also deletes the volume, it returned 1, so the data lives in the volume and not in any container.
+**Main difference:** Readiness determines whether a container can receive traffic, while liveness determines whether a container needs to be restarted.
 
-### 3. Where database passwords should come from
+## 2. Why is a Secret not the same as encryption?
 
-A password should come from the environment at runtime, for example a `.env` file ignored by Git and referenced as `${DB_PASSWORD}` (with a fake `.env.example` committed), or a secrets manager in a real deployment. Committing it is a problem even in a private repository because Git history is permanent: deleting the file later does not remove it from old commits or existing clones, and once it leaks the only fix is to rotate the password. My setup has no password (Redis runs without authentication and its port is not published to the host), so I have no `.env` or `.env.example`, which the assignment only requires if secrets are used.
+A Kubernetes Secret is designed to store sensitive information such as passwords, API keys, and tokens. However, a Secret is not automatically encrypted just because it is called a Secret.
 
-### Bonus: three copies of the app
+- By default, Kubernetes Secrets are stored in etcd using Base64 encoding, which is not encryption.
+- Anyone who can access the Secret or decode its Base64 value can potentially read the original data.
+- Encryption at rest must be configured separately to protect Secrets stored in etcd.
+- Access should also be restricted using RBAC permissions.
 
-I temporarily removed the fixed `8000:8000` mapping so the copies would not fight for the same host port, and ran `docker compose up -d --scale app=3`. Afterwards I restored the mapping, so my final `compose.yaml` publishes port 8000. Requests sent to the three copies (ports 64937, 64938, 64939) returned 1, 2, 3, 4, 5, so the counter was shared. All copies use the same Redis by name, which is why state belongs outside the app.
+**Main difference:** Base64 is an encoding method (not encryption). Kubernetes Secrets provide a way to manage sensitive data, but additional security measures are needed to protect that data.
 
-### AI assistant note
+## 3. What happens when a container crosses its memory limit?
 
-I used an AI assistant to review my files against the checklist and to understand Docker's DNS, the healthcheck setup, and why the counter survived `docker compose down` but not `down -v`. I ran every command myself, and the outputs quoted above are from my own terminal.
+When a container exceeds its configured memory limit, the Linux kernel may trigger the **OOM (Out Of Memory) Killer**.
+
+- The container's process may be terminated because it exceeded its allowed memory.
+- Kubernetes typically reports the container's termination reason as `OOMKilled`.
+- Kubernetes may restart the container depending on its restart policy.
+- If the container repeatedly exceeds its memory limit, it can enter a `CrashLoopBackOff` state.
+
+**Main difference:** Unlike CPU limits, which generally throttle CPU usage, exceeding a memory limit can cause the container to be terminated.
